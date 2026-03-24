@@ -1,4 +1,5 @@
 use crate::{
+    builder,
     cli::{Cli, Commands},
     config::{RuntimeConfig, RuntimePaths},
     logging,
@@ -140,9 +141,14 @@ async fn run_check_cycle(
         state.status = UpdateStatus::UpdateDetected;
         state.candidate_version = Some(downloaded.candidate_version);
         state.dmg_sha256 = Some(downloaded.sha256);
-        state.artifact_paths.dmg_path = Some(downloaded.path);
+        state.artifact_paths.dmg_path = Some(downloaded.path.clone());
         state.save(&paths.state_file)?;
-        info!("update detected and staged for later build");
+
+        let candidate_version = state
+            .candidate_version
+            .clone()
+            .expect("candidate version should be set before local build");
+        builder::build_update(config, state, paths, &candidate_version, &downloaded.path).await?;
         Ok(())
     }
     .await;

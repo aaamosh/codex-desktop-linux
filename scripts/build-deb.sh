@@ -9,9 +9,12 @@ DIST_DIR="$REPO_DIR/dist"
 CONTROL_TEMPLATE="$REPO_DIR/packaging/linux/control"
 DESKTOP_TEMPLATE="$REPO_DIR/packaging/linux/codex-desktop.desktop"
 ICON_SOURCE="$REPO_DIR/assets/codex.png"
+APP_DIR="${APP_DIR_OVERRIDE:-$APP_DIR}"
+DIST_DIR="${DIST_DIR_OVERRIDE:-$DIST_DIR}"
 
 PACKAGE_NAME="${PACKAGE_NAME:-codex-desktop}"
 PACKAGE_VERSION="${PACKAGE_VERSION:-$(date +%Y.%m.%d)}"
+UPDATE_BUILDER_ROOT="$PKG_ROOT/opt/$PACKAGE_NAME/update-builder"
 
 info()  { echo "[INFO] $*" >&2; }
 error() { echo "[ERROR] $*" >&2; exit 1; }
@@ -52,6 +55,12 @@ main() {
     cp -a "$APP_DIR" "$PKG_ROOT/opt/$PACKAGE_NAME"
     cp "$DESKTOP_TEMPLATE" "$PKG_ROOT/usr/share/applications/$PACKAGE_NAME.desktop"
     cp "$ICON_SOURCE" "$PKG_ROOT/usr/share/icons/hicolor/256x256/apps/$PACKAGE_NAME.png"
+    mkdir -p "$UPDATE_BUILDER_ROOT/scripts" "$UPDATE_BUILDER_ROOT/packaging/linux" "$UPDATE_BUILDER_ROOT/assets"
+    cp "$REPO_DIR/install.sh" "$UPDATE_BUILDER_ROOT/install.sh"
+    cp "$REPO_DIR/scripts/build-deb.sh" "$UPDATE_BUILDER_ROOT/scripts/build-deb.sh"
+    cp "$REPO_DIR/packaging/linux/control" "$UPDATE_BUILDER_ROOT/packaging/linux/control"
+    cp "$REPO_DIR/packaging/linux/codex-desktop.desktop" "$UPDATE_BUILDER_ROOT/packaging/linux/codex-desktop.desktop"
+    cp "$REPO_DIR/assets/codex.png" "$UPDATE_BUILDER_ROOT/assets/codex.png"
 
     cat > "$PKG_ROOT/usr/bin/$PACKAGE_NAME" <<SCRIPT
 #!/bin/bash

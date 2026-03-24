@@ -13,6 +13,7 @@ pub struct RuntimeConfig {
     pub auto_install_on_app_exit: bool,
     pub notifications: bool,
     pub workspace_root: PathBuf,
+    pub builder_bundle_root: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +63,16 @@ impl RuntimePaths {
 
 impl RuntimeConfig {
     pub fn default_with_paths(paths: &RuntimePaths) -> Self {
+        let packaged_bundle_root = PathBuf::from("/opt/codex-desktop/update-builder");
+        let builder_bundle_root = if packaged_bundle_root.exists() {
+            packaged_bundle_root
+        } else {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("updater crate should live inside the repository root")
+                .to_path_buf()
+        };
+
         Self {
             dmg_url: "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg".to_string(),
             initial_check_delay_seconds: 30,
@@ -69,6 +80,7 @@ impl RuntimeConfig {
             auto_install_on_app_exit: true,
             notifications: true,
             workspace_root: paths.cache_dir.clone(),
+            builder_bundle_root,
         }
     }
 
@@ -107,6 +119,7 @@ mod tests {
         assert_eq!(config.initial_check_delay_seconds, 30);
         assert!(config.auto_install_on_app_exit);
         assert_eq!(config.workspace_root, paths.cache_dir);
+        assert!(config.builder_bundle_root.is_absolute());
         Ok(())
     }
 
@@ -131,6 +144,7 @@ check_interval_hours = 12
 auto_install_on_app_exit = false
 notifications = false
 workspace_root = "/tmp/codex-workspaces"
+builder_bundle_root = "/tmp/codex-builder"
 "#,
         )?;
 
@@ -141,6 +155,7 @@ workspace_root = "/tmp/codex-workspaces"
         assert!(!config.auto_install_on_app_exit);
         assert!(!config.notifications);
         assert_eq!(config.workspace_root, PathBuf::from("/tmp/codex-workspaces"));
+        assert_eq!(config.builder_bundle_root, PathBuf::from("/tmp/codex-builder"));
         Ok(())
     }
 }
