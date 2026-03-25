@@ -79,23 +79,23 @@ main() {
     # shellcheck disable=SC2064
     trap "rm -rf '$build_root'" EXIT
 
-    local br="$build_root/BUILDROOT"
-    local update_builder_dir="$br/opt/$PACKAGE_NAME/update-builder"
+    local staging_root="$build_root/STAGING"
+    local update_builder_dir="$staging_root/opt/$PACKAGE_NAME/update-builder"
 
     mkdir -p \
-        "$br/opt/$PACKAGE_NAME" \
-        "$br/usr/bin" \
-        "$br/usr/lib/systemd/user" \
-        "$br/usr/share/applications" \
-        "$br/usr/share/icons/hicolor/256x256/apps"
+        "$staging_root/opt/$PACKAGE_NAME" \
+        "$staging_root/usr/bin" \
+        "$staging_root/usr/lib/systemd/user" \
+        "$staging_root/usr/share/applications" \
+        "$staging_root/usr/share/icons/hicolor/256x256/apps"
 
-    cp -a "$APP_DIR/." "$br/opt/$PACKAGE_NAME/"
-    cp "$DESKTOP_TEMPLATE" "$br/usr/share/applications/$PACKAGE_NAME.desktop"
-    cp "$ICON_SOURCE" "$br/usr/share/icons/hicolor/256x256/apps/$PACKAGE_NAME.png"
-    cp "$UPDATER_BINARY_SOURCE" "$br/usr/bin/codex-update-manager"
-    chmod 0755 "$br/usr/bin/codex-update-manager"
-    cp "$UPDATER_SERVICE_SOURCE" "$br/usr/lib/systemd/user/codex-update-manager.service"
-    chmod 0644 "$br/usr/lib/systemd/user/codex-update-manager.service"
+    cp -a "$APP_DIR/." "$staging_root/opt/$PACKAGE_NAME/"
+    cp "$DESKTOP_TEMPLATE" "$staging_root/usr/share/applications/$PACKAGE_NAME.desktop"
+    cp "$ICON_SOURCE" "$staging_root/usr/share/icons/hicolor/256x256/apps/$PACKAGE_NAME.png"
+    cp "$UPDATER_BINARY_SOURCE" "$staging_root/usr/bin/codex-update-manager"
+    chmod 0755 "$staging_root/usr/bin/codex-update-manager"
+    cp "$UPDATER_SERVICE_SOURCE" "$staging_root/usr/lib/systemd/user/codex-update-manager.service"
+    chmod 0644 "$staging_root/usr/lib/systemd/user/codex-update-manager.service"
 
     mkdir -p \
         "$update_builder_dir/scripts" \
@@ -110,17 +110,18 @@ main() {
     cp "$UPDATER_SERVICE_SOURCE" "$update_builder_dir/packaging/linux/codex-update-manager.service"
     cp "$REPO_DIR/assets/codex.png" "$update_builder_dir/assets/codex.png"
 
-    cat > "$br/usr/bin/$PACKAGE_NAME" <<SCRIPT
+    cat > "$staging_root/usr/bin/$PACKAGE_NAME" <<SCRIPT
 #!/bin/bash
 exec /opt/$PACKAGE_NAME/start.sh "\$@"
 SCRIPT
-    chmod 0755 "$br/usr/bin/$PACKAGE_NAME"
+    chmod 0755 "$staging_root/usr/bin/$PACKAGE_NAME"
 
     local spec_file="$build_root/codex-desktop.spec"
     sed \
         -e "s/__PACKAGE_NAME__/$PACKAGE_NAME/g" \
         -e "s/__RPM_VERSION__/$rpm_ver/g" \
         -e "s/__RPM_RELEASE__/$rpm_rel/g" \
+        -e "s|__RPM_STAGING_DIR__|$staging_root|g" \
         -e "s/__ARCH__/$arch/g" \
         "$SPEC_TEMPLATE" > "$spec_file"
 
@@ -135,7 +136,6 @@ SCRIPT
     mkdir -p "$DIST_DIR"
     info "Building $PACKAGE_NAME-${rpm_ver}-${rpm_rel}.${arch}.rpm"
     rpmbuild -bb \
-        --buildroot "$br" \
         --define "_rpmdir $rpmbuild_dir/RPMS" \
         --define "_srcrpmdir $rpmbuild_dir/SRPMS" \
         --define "_builddir $rpmbuild_dir/BUILD" \
