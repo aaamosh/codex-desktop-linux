@@ -249,6 +249,7 @@ LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/codex-desktop"
 LOG_FILE="$LOG_DIR/launcher.log"
 APP_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/codex-desktop"
 APP_PID_FILE="$APP_STATE_DIR/app.pid"
+DESKTOP_FILE_HINT="/usr/share/applications/codex-desktop.desktop"
 
 mkdir -p "$LOG_DIR" "$APP_STATE_DIR"
 exec >>"$LOG_FILE" 2>&1
@@ -355,7 +356,7 @@ ensure_update_manager_service() {
     fi
 
     if systemctl --user is-enabled codex-update-manager.service >/dev/null 2>&1; then
-        systemctl --user start codex-update-manager.service >/dev/null 2>&1 || true
+        systemctl --user restart codex-update-manager.service >/dev/null 2>&1 || true
     else
         systemctl --user enable --now codex-update-manager.service >/dev/null 2>&1 || true
     fi
@@ -387,6 +388,9 @@ if [ -z "$CODEX_CLI_PATH" ]; then
     notify_error "Codex CLI not found. Install with: npm i -g @openai/codex"
     exit 1
 fi
+
+export CHROME_DESKTOP="codex-desktop.desktop"
+export BAMF_DESKTOP_FILE_HINT="$DESKTOP_FILE_HINT"
 
 echo "Using CODEX_CLI_PATH=$CODEX_CLI_PATH"
 

@@ -14,9 +14,10 @@ use std::{
 use tokio::process::Command;
 use tracing::info;
 
-const REQUIRED_BUNDLE_FILES: [(&str, &str); 4] = [
+const REQUIRED_BUNDLE_FILES: [(&str, &str); 5] = [
     ("install.sh", "install.sh"),
     ("scripts/build-deb.sh", "scripts/build-deb.sh"),
+    ("scripts/lib/package-common.sh", "scripts/lib/package-common.sh"),
     ("packaging/linux", "packaging/linux"),
     ("assets/codex.png", "assets/codex.png"),
 ];
@@ -357,7 +358,7 @@ touch "${DIST_DIR_OVERRIDE}/codex-desktop-${PACKAGE_VERSION}.x86_64.rpm"
         let bundle_root = temp.path().join("bundle");
         let state_root = temp.path().join("state");
         let cache_root = temp.path().join("cache");
-        fs::create_dir_all(bundle_root.join("scripts"))?;
+        fs::create_dir_all(bundle_root.join("scripts/lib"))?;
         fs::create_dir_all(bundle_root.join("packaging/linux"))?;
         fs::create_dir_all(bundle_root.join("assets"))?;
         fs::write(bundle_root.join("assets/codex.png"), b"png")?;
@@ -398,6 +399,10 @@ chmod +x "${CODEX_INSTALL_DIR}/start.sh"
         // Provide both build scripts so the test works on both Debian and Fedora.
         write_fake_build_script(&bundle_root.join("scripts/build-deb.sh"), true)?;
         write_fake_build_script(&bundle_root.join("scripts/build-rpm.sh"), false)?;
+        fs::write(
+            bundle_root.join("scripts/lib/package-common.sh"),
+            b"#!/bin/bash\n",
+        )?;
 
         let paths = RuntimePaths {
             config_file: temp.path().join("config/config.toml"),
@@ -453,11 +458,15 @@ chmod +x "${CODEX_INSTALL_DIR}/start.sh"
         let source_root = temp.path().join("source");
         let destination_root = temp.path().join("destination");
 
-        fs::create_dir_all(source_root.join("scripts"))?;
+        fs::create_dir_all(source_root.join("scripts/lib"))?;
         fs::create_dir_all(source_root.join("packaging/linux"))?;
         fs::create_dir_all(source_root.join("assets"))?;
         fs::write(source_root.join("install.sh"), b"#!/bin/bash\n")?;
         fs::write(source_root.join("scripts/build-deb.sh"), b"#!/bin/bash\n")?;
+        fs::write(
+            source_root.join("scripts/lib/package-common.sh"),
+            b"#!/bin/bash\n",
+        )?;
         fs::write(
             source_root.join("packaging/linux/control"),
             b"Package: codex\n",
