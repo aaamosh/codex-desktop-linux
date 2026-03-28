@@ -21,6 +21,20 @@ info()  { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
+dependency_help() {
+    cat <<'EOF'
+Run the helper to install them automatically:
+  bash scripts/install-deps.sh
+
+Or install manually:
+  sudo apt install nodejs npm python3 p7zip-full curl unzip build-essential         # Debian/Ubuntu
+  sudo dnf install nodejs npm python3 7zip curl unzip @development-tools            # Fedora 41+ (dnf5)
+  sudo dnf install nodejs npm python3 p7zip p7zip-plugins curl unzip                # Fedora <41 (dnf)
+    && sudo dnf groupinstall 'Development Tools'
+  sudo pacman -S nodejs npm python p7zip curl unzip base-devel                      # Arch
+EOF
+}
+
 cleanup() {
     rm -rf "$WORK_DIR"
 }
@@ -35,10 +49,7 @@ check_deps() {
     done
     if [ ${#missing[@]} -ne 0 ]; then
         error "Missing dependencies: ${missing[*]}
-Install them first:
-  sudo apt install nodejs npm python3 p7zip-full curl unzip build-essential  # Debian/Ubuntu
-  sudo dnf install nodejs npm python3 p7zip curl unzip && sudo dnf groupinstall 'Development Tools'  # Fedora
-  sudo pacman -S nodejs npm python p7zip curl unzip base-devel  # Arch"
+$(dependency_help)"
     fi
 
     NODE_MAJOR=$(node -v | cut -d. -f1 | tr -d v)
@@ -48,9 +59,7 @@ Install them first:
 
     if ! command -v make &>/dev/null || ! command -v g++ &>/dev/null; then
         error "Build tools (make, g++) required:
-  sudo apt install build-essential   # Debian/Ubuntu
-  sudo dnf groupinstall 'Development Tools'  # Fedora
-  sudo pacman -S base-devel          # Arch"
+$(dependency_help)"
     fi
 
     # Prefer modern 7-zip if available (required for APFS DMG)
@@ -106,19 +115,24 @@ extract_dmg() {
     local dmg_path="$1"
     info "Extracting DMG with 7z..."
 
-    local seven_log="$WORK_DIR/7z.log"
-    if ! "$SEVEN_ZIP_CMD" x -y -snl "$dmg_path" -o"$WORK_DIR/dmg-extract" >"$seven_log" 2>&1; then
-        if grep -q "Dangerous link path was ignored" "$seven_log"; then
-            warn "7-zip reported a dangerous link inside the DMG. Continuing without it."
-        else
-            cat "$seven_log" >&2
-            error "Failed to extract DMG"
-        fi
+    local seven_zip_status=0
+    if 7z x -y "$dmg_path" -o"$WORK_DIR/dmg-extract" >&2; then
+        seven_zip_status=0
+    else
+        seven_zip_status=$?
     fi
 
     local app_dir
     app_dir=$(find "$WORK_DIR/dmg-extract" -maxdepth 3 -name "*.app" -type d | head -1)
-    [ -n "$app_dir" ] || error "Could not find .app bundle in DMG"
+    if [ -z "$app_dir" ]; then
+        error "Failed to extract DMG"
+    fi
+
+    # 7z can return non-zero for non-fatal warnings, such as the DMG's
+    # /Applications symlink being skipped as a "dangerous link path".
+    if [ "$seven_zip_status" -ne 0 ]; then
+        warn "7z reported extraction warnings (exit code $seven_zip_status); continuing"
+    fi
 
     info "Found: $(basename "$app_dir")"
     echo "$app_dir"
@@ -242,10 +256,112 @@ install_app() {
 create_start_script() {
     cat > "$INSTALL_DIR/start.sh" << 'SCRIPT'
 #!/bin/bash
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WEBVIEW_DIR="$SCRIPT_DIR/content/webview"
+LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/codex-desktop"
+LOG_FILE="$LOG_DIR/launcher.log"
+APP_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/codex-desktop"
+APP_PID_FILE="$APP_STATE_DIR/app.pid"
+PACKAGED_RUNTIME_HELPER="$SCRIPT_DIR/.codex-linux/codex-packaged-runtime.sh"
 
-pkill -f "http.server 5175" 2>/dev/null
+mkdir -p "$LOG_DIR" "$APP_STATE_DIR"
+exec >>"$LOG_FILE" 2>&1
+
+echo "[$(date -Is)] Starting Codex Desktop launcher"
+
+load_packaged_runtime_helper() {
+    if [ -f "$PACKAGED_RUNTIME_HELPER" ]; then
+        # shellcheck disable=SC1090
+        . "$PACKAGED_RUNTIME_HELPER"
+    fi
+}
+
+run_packaged_runtime_prelaunch() {
+    if declare -F codex_packaged_runtime_prelaunch >/dev/null 2>&1; then
+        codex_packaged_runtime_prelaunch
+    fi
+}
+
+export_packaged_runtime_env() {
+    if declare -F codex_packaged_runtime_export_env >/dev/null 2>&1; then
+        codex_packaged_runtime_export_env
+    fi
+}
+
+find_codex_cli() {
+    if command -v codex >/dev/null 2>&1; then
+        command -v codex
+        return 0
+    fi
+
+    if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+        export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+        # shellcheck disable=SC1090
+        . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 || true
+        if command -v codex >/dev/null 2>&1; then
+            command -v codex
+            return 0
+        fi
+    fi
+
+    local candidate
+    for candidate in \
+        "$HOME/.nvm/versions/node/current/bin/codex" \
+        "$HOME/.nvm/versions/node"/*/bin/codex \
+        "$HOME/.local/bin/codex" \
+        "/usr/local/bin/codex" \
+        "/usr/bin/codex"
+    do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+notify_error() {
+    local message="$1"
+    echo "$message"
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Codex Desktop" "$message"
+    fi
+}
+
+wait_for_webview_server() {
+    echo "Waiting for webview server on :5175"
+
+    local attempt
+    for attempt in $(seq 1 50); do
+        if python3 -c "import socket; s=socket.socket(); s.settimeout(0.5); s.connect(('127.0.0.1', 5175)); s.close()" 2>/dev/null; then
+            echo "Webview server is ready"
+            return 0
+        fi
+        sleep 0.1
+    done
+
+    return 1
+}
+
+clear_stale_pid_file() {
+    if [ ! -f "$APP_PID_FILE" ]; then
+        return 0
+    fi
+
+    local pid=""
+    pid="$(cat "$APP_PID_FILE" 2>/dev/null || true)"
+    if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$APP_PID_FILE"
+    fi
+}
+
+load_packaged_runtime_helper
+clear_stale_pid_file
+run_packaged_runtime_prelaunch
+pkill -f "http.server 5175" 2>/dev/null || true
 sleep 0.5
 
 if [ -d "$WEBVIEW_DIR" ] && [ "$(ls -A "$WEBVIEW_DIR" 2>/dev/null)" ]; then
@@ -265,15 +381,30 @@ if [ -d "$WEBVIEW_DIR" ] && [ "$(ls -A "$WEBVIEW_DIR" 2>/dev/null)" ]; then
     done
 fi
 
-export CODEX_CLI_PATH="${CODEX_CLI_PATH:-$(which codex 2>/dev/null)}"
+if [ -z "${CODEX_CLI_PATH:-}" ]; then
+    CODEX_CLI_PATH="$(find_codex_cli || true)"
+    export CODEX_CLI_PATH
+fi
 
 if [ -z "$CODEX_CLI_PATH" ]; then
-    echo "Error: Codex CLI not found. Install with: npm i -g @openai/codex"
+    notify_error "Codex CLI not found. Install with: npm i -g @openai/codex"
     exit 1
 fi
 
+export_packaged_runtime_env
+
+echo "Using CODEX_CLI_PATH=$CODEX_CLI_PATH"
+
 cd "$SCRIPT_DIR"
-exec "$SCRIPT_DIR/electron" --no-sandbox --ozone-platform-hint=auto --disable-gpu-sandbox --enable-features=WaylandWindowDecorations "$@"
+echo "$$" > "$APP_PID_FILE"
+exec "$SCRIPT_DIR/electron" \
+    --no-sandbox \
+    --class=Codex \
+    --app-id=Codex \
+    --ozone-platform-hint=auto \
+    --disable-gpu-sandbox \
+    --enable-features=WaylandWindowDecorations \
+    "$@"
 SCRIPT
 
     chmod +x "$INSTALL_DIR/start.sh"

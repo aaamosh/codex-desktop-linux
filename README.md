@@ -2,25 +2,29 @@
 
 Run [OpenAI Codex Desktop](https://openai.com/codex/) on Linux.
 
-The official Codex Desktop app is macOS-only. This project provides an automated installer that converts the macOS `.dmg` into a working Linux application.
+The official Codex Desktop app is macOS-only. This project provides an automated installer that converts the macOS `.dmg` into a working Linux application, then packages that app as a native Linux package.
 
-## How it works
+`codex-update-manager` current crate version: `0.2.1`
+
+SemVer policy for the crate:
+
+- `major` for incompatible CLI, persisted-state, or install-flow changes
+- `minor` for compatible feature additions
+- `patch` for fixes, docs, and maintenance-only updates
+
+## How It Works
 
 The installer:
 
-1. Extracts the macOS `.dmg` (using `7z`)
-2. Extracts `app.asar` (the Electron app bundle)
-3. Rebuilds native Node.js modules (`node-pty`, `better-sqlite3`) for Linux
-4. Removes macOS-only modules (`sparkle` auto-updater)
-5. Downloads Linux Electron (same version as the app — v40)
-6. Repacks everything and creates a launch script
+1. Extracts the macOS `.dmg` with `7z`
+2. Extracts and patches `app.asar`
+3. Rebuilds native Node.js modules for Linux
+4. Downloads a Linux Electron runtime
+5. Writes a Linux launcher into `codex-app/start.sh`
+6. Packages `codex-app/` as a Debian or RPM package
+7. Starts `codex-update-manager` as a `systemd --user` service for local auto-updates
 
 ## Prerequisites
-
-**Node.js 20+**, **npm**, **Python 3**, **7z**, **curl**, and **build tools** (gcc/g++/make).
-
-### Debian/Ubuntu
-
 ```bash
 sudo apt install nodejs npm python3 p7zip-full curl build-essential
 ```
@@ -36,16 +40,15 @@ sudo install -m 755 /tmp/7zz /usr/local/bin/7zz
 
 ### Fedora
 
-```bash
-sudo dnf install nodejs npm python3 p7zip curl
-sudo dnf groupinstall 'Development Tools'
-```
+You need **Node.js 20+**, **npm**, **Python 3**, **7z**, **curl**, build tools (`gcc`/`g++`/`make`), and **Rust** (`cargo`) for the updater crate and local package rebuilds.
 
-### Arch
+The easiest way to install the required system packages is:
 
 ```bash
-sudo pacman -S nodejs npm python p7zip curl base-devel
+bash scripts/install-deps.sh
 ```
+
+That helper detects `apt`, `dnf5`, `dnf`, or `pacman`, installs the system dependencies, and bootstraps Rust through `rustup` if needed.
 
 ### NixOS
 
@@ -67,6 +70,7 @@ To add it to a system flake, include this repo as an input and expose the
 installer package in `environment.systemPackages`, then run
 `codex-desktop-installer` after rebuilding.
 
+
 You also need the **Codex CLI**:
 
 ```bash
@@ -75,7 +79,7 @@ npm i -g @openai/codex
 
 ## Installation
 
-### Option A: Auto-download DMG
+### Auto-download DMG
 
 ```bash
 git clone https://github.com/ilysenko/codex-desktop-linux.git
@@ -84,9 +88,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-### Option B: Provide your own DMG
-
-Download `Codex.dmg` from [openai.com/codex](https://openai.com/codex/), then:
+### Use your own DMG
 
 ```bash
 ./install.sh /path/to/Codex.dmg
@@ -94,49 +96,171 @@ Download `Codex.dmg` from [openai.com/codex](https://openai.com/codex/), then:
 
 ## Usage
 
-The app is installed into `codex-app/` next to the install script:
+After installation, launch the generated app from `codex-app/start.sh`:
 
 ```bash
-codex-desktop-linux/codex-app/start.sh
+./codex-app/start.sh
 ```
 
-Or add an alias to your shell:
+If you prefer an alias:
 
 ```bash
 echo 'alias codex-desktop="~/codex-desktop-linux/codex-app/start.sh"' >> ~/.bashrc
 ```
 
-### Custom install directory
+## Native Packages
+
+The repository can build either a Debian package or an RPM package from the generated `codex-app/` directory.
+
+### Debian
 
 ```bash
-CODEX_INSTALL_DIR=/opt/codex ./install.sh
+./scripts/build-deb.sh
 ```
 
-## How it works (technical details)
+Output:
 
-The macOS Codex app is an Electron application. The core code (`app.asar`) is platform-independent JavaScript, but it bundles:
+```bash
+dist/codex-desktop_YYYY.MM.DD.HHMMSS_amd64.deb
+```
 
-- **Native modules** compiled for macOS (`node-pty` for terminal emulation, `better-sqlite3` for local storage, `sparkle` for auto-updates)
-- **Electron binary** for macOS
+Install it with:
 
-The installer replaces the macOS Electron with a Linux build and recompiles the native modules using `@electron/rebuild`. The `sparkle` module (macOS-only auto-updater) is removed since it has no Linux equivalent.
+```bash
+sudo dpkg -i dist/codex-desktop_*.deb
+```
 
-A small Python HTTP server is used as a workaround: when `app.isPackaged` is `false` (which happens with extracted builds), the app tries to connect to a Vite dev server on `localhost:5175`. The HTTP server serves the static webview files on that port.
+### RPM
+
+```bash
+./scripts/build-rpm.sh
+```
+
+Output:
+
+```bash
+dist/codex-desktop-YYYY.MM.DD.HHMMSS-<release>.x86_64.rpm
+```
+
+Install it with:
+
+```bash
+sudo rpm -Uvh dist/codex-desktop-*.rpm
+```
+
+### Makefile shortcuts
+
+```bash
+make check
+make test
+make build-updater
+make build-app
+make deb
+make rpm
+make package
+make install
+make clean-dist
+make clean-state
+```
+
+`make package` auto-detects the native package manager available on the host and builds the matching package type.
+
+## Update Manager
+
+The package installs a companion service named `codex-update-manager`.
+
+- It runs as a `systemd --user` service.
+- The launcher starts it in best-effort mode on first app launch.
+- It checks the upstream `Codex.dmg` on startup and every 6 hours.
+- When a new DMG is detected, it rebuilds a local native package using the bundled `update-builder` files under `/opt/codex-desktop/update-builder`.
+- If the app is open, the update stays pending until the Electron process exits.
+- When the app is closed, the service requests elevation with `pkexec` only for the final install step.
+- If the privileged install fails or the auth dialog is dismissed, the updater stays in `failed` instead of re-prompting every 15 seconds.
+- Package removal now makes a best-effort attempt to stop and disable the user service for active desktop sessions.
+
+You can inspect the service state with:
+
+```bash
+systemctl --user status codex-update-manager.service
+codex-update-manager status --json
+```
+
+Runtime files live in the standard XDG locations:
+
+```bash
+~/.config/codex-update-manager/config.toml
+~/.local/state/codex-update-manager/state.json
+~/.local/state/codex-update-manager/service.log
+~/.cache/codex-update-manager/
+```
+
+The Electron launcher also writes:
+
+```bash
+~/.local/state/codex-desktop/app.pid
+```
+
+That PID file lets the updater know whether Electron is still running before it attempts to install a pending package.
+
+## Technical Notes
+
+The macOS Codex app is an Electron application. The core code (`app.asar`) is platform-independent JavaScript, but it bundles macOS-native modules and a macOS Electron binary.
+
+The installer replaces the macOS Electron with a Linux build and recompiles the native modules using `@electron/rebuild`. The `sparkle` module is removed because it is macOS-only.
+
+The extracted app expects a local webview origin on `localhost:5175`, so the current launcher starts `python3 -m http.server 5175` from `content/webview/`, waits for the socket to become reachable, and only then launches Electron. That is a compatibility workaround for the extracted build, not a final architectural goal.
+
+The current evaluation for a future Rust replacement lives in `docs/webview-server-evaluation.md`.
+
+Native-package-only launcher behavior such as desktop-entry hints and `codex-update-manager` session bootstrapping now lives in `packaging/linux/codex-packaged-runtime.sh`, which the generated launcher loads only when present inside a packaged install.
+
+The launcher also writes logs to:
+
+```bash
+~/.cache/codex-desktop/launcher.log
+```
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| `Error: write EPIPE` | Make sure you're not piping the output — run `start.sh` directly |
-| Blank window | Check that port 5175 is not in use: `ss -tlnp \| grep 5175` |
+| `Error: write EPIPE` | Run `start.sh` directly instead of piping output |
+| Blank window | Check whether port 5175 is already in use: `ss -tlnp \| grep 5175` |
 | `ERR_CONNECTION_REFUSED` on `:5175` | The webview HTTP server failed to start. Ensure `python3` works and port 5175 is free |
-| `CODEX_CLI_PATH` error | Install CLI: `npm i -g @openai/codex` |
-| GPU/Vulkan/Wayland errors | Electron flags `--ozone-platform-hint=auto` and `--disable-gpu-sandbox` are set by default. For X11, try: `./codex-app/start.sh --ozone-platform=x11` |
-| Sandbox errors | The `--no-sandbox` flag is already set in `start.sh` |
+| `CODEX_CLI_PATH` error | Install the CLI with `npm i -g @openai/codex` |
+| GPU/Vulkan/Wayland errors | The launcher now sets `--ozone-platform-hint=auto`, `--disable-gpu-sandbox`, and `--enable-features=WaylandWindowDecorations` by default. If you need X11 explicitly, try `./codex-app/start.sh --ozone-platform=x11` |
+| Sandbox errors | The launcher already sets `--no-sandbox` |
+| `codex-update-manager` keeps running after package removal | Run `systemctl --user disable --now codex-update-manager.service` once in the affected session, then confirm `/opt/codex-desktop` is gone |
+
+## Validation
+
+After changing installer, packaging, or updater logic, validate at least:
+
+```bash
+bash -n install.sh scripts/build-deb.sh scripts/build-rpm.sh scripts/install-deps.sh
+cargo check -p codex-update-manager
+cargo test -p codex-update-manager
+./scripts/build-deb.sh
+dpkg-deb -I dist/codex-desktop_*.deb
+dpkg-deb -c dist/codex-desktop_*.deb | sed -n '1,40p'
+```
+
+If `rpmbuild` is available, also run:
+
+```bash
+./scripts/build-rpm.sh
+```
+
+If launcher behavior changed, inspect:
+
+```bash
+sed -n '1,120p' codex-app/start.sh
+```
+
 
 ## Disclaimer
 
-This is an unofficial community project. Codex Desktop is a product of OpenAI. This tool does not redistribute any OpenAI software — it automates the conversion process that users perform on their own copies.
+This is an unofficial community project. Codex Desktop is a product of OpenAI. This tool does not redistribute any OpenAI software; it automates the conversion process that users perform on their own copies.
 
 ## License
 
