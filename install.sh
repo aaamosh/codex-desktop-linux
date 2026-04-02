@@ -7,7 +7,8 @@ set -Eeuo pipefail
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_DIR="${CODEX_INSTALL_DIR:-$SCRIPT_DIR/codex-app}"
+INSTALL_ROOT="${CODEX_INSTALL_ROOT:-$SCRIPT_DIR}"
+INSTALL_DIR="${CODEX_INSTALL_DIR:-$INSTALL_ROOT/codex-app}"
 ELECTRON_VERSION="40.0.0"
 WORK_DIR="$(mktemp -d)"
 ARCH="$(uname -m)"
@@ -267,6 +268,9 @@ patch_asar() {
     # Build native modules in clean environment and copy back
     build_native_modules "$WORK_DIR/app-extracted"
 
+    info "Patching Linux window behavior..."
+    node "$SCRIPT_DIR/scripts/patch-linux-window-ui.js" "$WORK_DIR/app-extracted"
+
     # Repack
     info "Repacking app.asar..."
     cd "$WORK_DIR"
@@ -475,6 +479,7 @@ if [ -z "${CODEX_CLI_PATH:-}" ]; then
     CODEX_CLI_PATH="$(find_codex_cli || true)"
     export CODEX_CLI_PATH
 fi
+export CHROME_DESKTOP="${CHROME_DESKTOP:-codex-desktop.desktop}"
 
 if [ -z "$CODEX_CLI_PATH" ]; then
     notify_error "Codex CLI not found. Install with: npm i -g @openai/codex"
@@ -489,8 +494,8 @@ cd "$SCRIPT_DIR"
 echo "$$" > "$APP_PID_FILE"
 exec "$SCRIPT_DIR/electron" \
     --no-sandbox \
-    --class=Codex \
-    --app-id=Codex \
+    --class=codex-desktop \
+    --app-id=codex-desktop \
     --ozone-platform-hint=auto \
     --disable-gpu-sandbox \
     --disable-gpu-compositing \
