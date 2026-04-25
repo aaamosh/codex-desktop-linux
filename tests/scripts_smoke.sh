@@ -206,6 +206,8 @@ test_launcher_template_sanity() {
     assert_contains "$REPO_DIR/install.sh" "PACKAGED_RUNTIME_HELPER"
     assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "CHROME_DESKTOP"
     assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "BAMF_DESKTOP_FILE_HINT"
+    assert_contains "$REPO_DIR/contrib/user-local-install/files/.local/share/applications/codex-desktop.desktop" "StartupWMClass=Codex"
+    assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "StartupWMClass=Codex"
 }
 
 make_fake_extracted_asar() {

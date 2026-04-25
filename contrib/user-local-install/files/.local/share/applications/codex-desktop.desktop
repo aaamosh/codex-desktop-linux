@@ -9,5 +9,5 @@ Terminal=false
 Categories=Development;IDE;
 Keywords=codex;openai;ai;coding;
 StartupNotify=true
-StartupWMClass=codex-desktop
+StartupWMClass=Codex
 Icon=codex-desktop

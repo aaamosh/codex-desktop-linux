@@ -90,7 +90,7 @@ Do not assume `codex-app/` is pristine. If behavior differs from `install.sh`, p
 - App liveness:
   The launcher writes a PID file to `~/.local/state/codex-desktop/app.pid`. The updater uses that plus `/proc` fallback to know whether Electron is still running.
 - Desktop icon association:
-  The launcher runs Electron with `--class=codex-desktop`, and the desktop file sets `StartupWMClass=codex-desktop` so the taskbar/dock can associate the correct icon.
+  The desktop files set `StartupWMClass=Codex` because the current converted runtime reports `WM_CLASS(STRING) = "codex", "Codex"` even though the launcher still passes `--class=codex-desktop`; the desktop entry must match the observed window class so Cinnamon/GNOME-like panels can pin and associate the correct icon.
 - Electron env hygiene:
   The generated launcher clears inherited `ELECTRON_RUN_AS_NODE=1` immediately before the final Electron exec, because otherwise Electron behaves like Node and rejects Chromium flags such as `--no-sandbox`.
 - Webview server:
