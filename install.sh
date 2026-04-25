@@ -581,6 +581,10 @@ echo "Using CODEX_CLI_PATH=$CODEX_CLI_PATH"
 
 cd "$SCRIPT_DIR"
 echo "$$" > "$APP_PID_FILE"
+if [ -n "${ELECTRON_RUN_AS_NODE:-}" ]; then
+    echo "Clearing inherited ELECTRON_RUN_AS_NODE before launching Electron"
+    unset ELECTRON_RUN_AS_NODE
+fi
 exec "$SCRIPT_DIR/electron" \
     --no-sandbox \
     --class=codex-desktop \
