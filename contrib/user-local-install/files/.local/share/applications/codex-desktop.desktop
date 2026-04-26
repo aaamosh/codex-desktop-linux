@@ -10,4 +10,4 @@ Categories=Development;IDE;
 Keywords=codex;openai;ai;coding;
 StartupNotify=true
 StartupWMClass=Codex
-Icon=codex-desktop
+Icon=@HOME@/.local/share/icons/hicolor/512x512/apps/codex-desktop.png

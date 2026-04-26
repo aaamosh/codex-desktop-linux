@@ -407,6 +407,8 @@ The extracted app expects a local webview origin on `localhost:5175`, so the lau
 The launcher now also verifies that `http://127.0.0.1:5175/index.html` contains the expected Codex startup markers before Electron launches, so a port collision or incomplete extracted webview fails fast in `launcher.log` instead of hanging on the splash screen.
 Before the final Electron exec, the launcher clears an inherited `ELECTRON_RUN_AS_NODE=1`; that variable is useful for some Node/Electron tooling but makes the runtime parse Chromium flags as Node options.
 The desktop entries use `StartupWMClass=Codex`, matching the runtime `WM_CLASS(STRING) = "codex", "Codex"`, so Cinnamon and GNOME-like panels can associate the running window with the launcher.
+The user-local desktop entry uses the generated absolute PNG path under `~/.local/share/icons/hicolor/512x512/apps/` so Cinnamon panel favorites keep the Codex icon instead of falling back to a generic gear when the icon theme cache misses the app icon name.
+On X11, the launcher also sets `_NET_WM_ICON` on the Electron window after it appears, because some converted Electron builds expose an empty window icon even when the `.desktop` icon is valid.
 
 Native-package-only launcher behavior such as desktop-entry hints and `codex-update-manager` session bootstrapping lives in `packaging/linux/codex-packaged-runtime.sh`, which the generated launcher loads only when present inside a packaged install.
 

@@ -200,6 +200,8 @@ test_launcher_template_sanity() {
     assert_contains "$REPO_DIR/install.sh" "verify_webview_origin"
     assert_contains "$REPO_DIR/install.sh" "Webview origin verified."
     assert_contains "$REPO_DIR/install.sh" "Clearing inherited ELECTRON_RUN_AS_NODE before launching Electron"
+    assert_contains "$REPO_DIR/install.sh" "set_x11_window_icon"
+    assert_contains "$REPO_DIR/install.sh" "_NET_WM_ICON"
     assert_contains "$REPO_DIR/install.sh" "--app-id=codex-desktop"
     assert_contains "$REPO_DIR/install.sh" "--ozone-platform-hint=auto"
     assert_contains "$REPO_DIR/install.sh" "--disable-gpu-sandbox"
@@ -207,6 +209,7 @@ test_launcher_template_sanity() {
     assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "CHROME_DESKTOP"
     assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "BAMF_DESKTOP_FILE_HINT"
     assert_contains "$REPO_DIR/contrib/user-local-install/files/.local/share/applications/codex-desktop.desktop" "StartupWMClass=Codex"
+    assert_contains "$REPO_DIR/contrib/user-local-install/files/.local/share/applications/codex-desktop.desktop" "Icon=@HOME@/.local/share/icons/hicolor/512x512/apps/codex-desktop.png"
     assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "StartupWMClass=Codex"
 }
 
@@ -219,10 +222,10 @@ make_fake_extracted_asar() {
     mkdir -p "$root/webview/assets" "$root/.vite/build"
     printf 'png' > "$root/webview/assets/app-test.png"
     if [ -n "$settings_body" ]; then
-        printf '%s\n' "$settings_body" > "$root/webview/assets/general-settings-test.js"
+        printf '%s\n' "$settings_body" > "$root/webview/assets/code-theme-test.js"
     fi
     if [ -n "$index_body" ]; then
-        printf '%s\n' "$index_body" > "$root/webview/assets/index-test.js"
+        printf '%s\n' "$index_body" > "$root/webview/assets/use-resolved-theme-variant-test.js"
     fi
     cat > "$root/package.json" <<'JSON'
 {}
@@ -260,18 +263,18 @@ test_linux_translucent_sidebar_default_patch_smoke() {
     make_fake_extracted_asar \
         "$extracted" \
         'let D={removeMenu(){},setMenuBarVisibility(){},setIcon(){},once(){}};let t={join(){}};let a={existsSync(){return true},statSync(){return {isFile(){return false}}}};let n={shell:{openPath(){return ""},showItemInFolder(){}}};...process.platform===`win32`?{autoHideMenuBar:!0}:{},process.platform===`win32`&&D.removeMenu(),foo)}),D.once(`ready-to-show`,()=>{var sa=Mi({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>ai(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:ca,args:e=>ai(e),open:async({path:e})=>la(e)}});function ca(){let e=1;return e}async function la(e){let t=ua(e);if(t&&(0,a.statSync)(t).isFile()){n.shell.showItemInFolder(t);return}let r=t??e,i=await n.shell.openPath(r);if(i)throw Error(i)}function ua(e){return e}var Ua=Mi({id:`systemDefault`,label:`System Default App`,icon:`apps/file-explorer.png`,kind:`systemDefault`,hidden:!0,darwin:{icon:`apps/finder.png`,detect:()=>`system-default`,iconPath:()=>null,args:e=>[e],open:async({path:e})=>Wa(e)},win32:{detect:()=>`system-default`,iconPath:()=>null,args:e=>[e],open:async({path:e})=>Wa(e)},linux:{detect:()=>`system-default`,iconPath:()=>null,args:e=>[e],open:async({path:e})=>Wa(e)}});async function Wa(e){return e}' \
-        'function settings(){let d=ot(r,e),f=at(e),p={codeThemeId:tt(a,e).id,theme:d},x=`settings.general.appearance.chromeTheme.translucentSidebar`;return {p,x}}' \
-        'function runtime(){let o=`light`,a=`electron`,l=null,f=null,C=fl(l,`light`),w=fl(f,`dark`);let T=o===`light`?C:w,E;if(T.opaqueWindows&&!XZ()){document.body.classList.add(`electron-opaque`);return E}return E}'
+        'function settings(){return {opaqueWindows:e?.opaqueWindows??n.opaqueWindows,semanticColors:{}}}' \
+        'function runtime(){return {opaqueWindows:e?.opaqueWindows??n.opaqueWindows,semanticColors:{}}}'
 
     node "$REPO_DIR/scripts/patch-linux-window-ui.js" "$extracted" >"$output_log" 2>&1
-    assert_contains "$extracted/webview/assets/general-settings-test.js" 'navigator.userAgent.includes(`Linux`)&&r?.opaqueWindows==null&&(d={...d,opaqueWindows:!0})'
-    assert_contains "$extracted/webview/assets/index-test.js" 'document.documentElement.dataset.codexOs===`linux`&&((o===`light`?l:f)?.opaqueWindows==null&&(T={...T,opaqueWindows:!0}))'
-    assert_occurrence_count "$extracted/webview/assets/general-settings-test.js" 'navigator.userAgent.includes(`Linux`)' '1'
-    assert_occurrence_count "$extracted/webview/assets/index-test.js" 'dataset.codexOs===`linux`' '1'
+    assert_contains "$extracted/webview/assets/code-theme-test.js" 'opaqueWindows:e?.opaqueWindows??(typeof navigator<`u`&&((navigator.userAgentData?.platform??navigator.platform??navigator.userAgent).toLowerCase().includes(`linux`))?!0:n.opaqueWindows),semanticColors:'
+    assert_contains "$extracted/webview/assets/use-resolved-theme-variant-test.js" 'opaqueWindows:e?.opaqueWindows??(typeof navigator<`u`&&((navigator.userAgentData?.platform??navigator.platform??navigator.userAgent).toLowerCase().includes(`linux`))?!0:n.opaqueWindows),semanticColors:'
+    assert_occurrence_count "$extracted/webview/assets/code-theme-test.js" 'toLowerCase().includes(`linux`)' '1'
+    assert_occurrence_count "$extracted/webview/assets/use-resolved-theme-variant-test.js" 'toLowerCase().includes(`linux`)' '1'
 
     node "$REPO_DIR/scripts/patch-linux-window-ui.js" "$extracted" >"$output_log" 2>&1
-    assert_occurrence_count "$extracted/webview/assets/general-settings-test.js" 'navigator.userAgent.includes(`Linux`)' '1'
-    assert_occurrence_count "$extracted/webview/assets/index-test.js" 'dataset.codexOs===`linux`' '1'
+    assert_occurrence_count "$extracted/webview/assets/code-theme-test.js" 'toLowerCase().includes(`linux`)' '1'
+    assert_occurrence_count "$extracted/webview/assets/use-resolved-theme-variant-test.js" 'toLowerCase().includes(`linux`)' '1'
 }
 
 test_linux_file_manager_patch_fails_soft() {

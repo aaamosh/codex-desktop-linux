@@ -518,6 +518,78 @@ if missing:
 PY
 }
 
+set_x11_window_icon() {
+    local target_pid="$1"
+    local icon_path="$APP_NOTIFICATION_ICON_SYSTEM"
+
+    [ -n "${DISPLAY:-}" ] || return 0
+    [ -f "$icon_path" ] || icon_path="$APP_NOTIFICATION_ICON_BUNDLE"
+    [ -f "$icon_path" ] || icon_path="$APP_NOTIFICATION_ICON_REPO"
+    [ -f "$icon_path" ] || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
+    command -v wmctrl >/dev/null 2>&1 || return 0
+
+    CODEX_DESKTOP_ICON_TARGET_PID="$target_pid" \
+    CODEX_DESKTOP_ICON_PATH="$icon_path" \
+    python3 <<'PY' >/dev/null 2>&1 || true
+import ctypes
+import ctypes.util
+import os
+import subprocess
+import time
+from pathlib import Path
+
+try:
+    from PIL import Image
+except Exception:
+    raise SystemExit(0)
+
+target_pid = os.environ.get("CODEX_DESKTOP_ICON_TARGET_PID", "")
+icon_path = Path(os.environ.get("CODEX_DESKTOP_ICON_PATH", ""))
+if not target_pid or not icon_path.is_file():
+    raise SystemExit(0)
+
+window_id = None
+for _ in range(120):
+    try:
+        output = subprocess.check_output(["wmctrl", "-lxp"], text=True)
+    except Exception:
+        output = ""
+    for line in output.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) >= 4 and parts[2] == target_pid and "codex" in parts[3].lower():
+            window_id = int(parts[0], 16)
+            break
+    if window_id is not None:
+        break
+    time.sleep(0.1)
+
+if window_id is None:
+    raise SystemExit(0)
+
+values = []
+with Image.open(icon_path) as source:
+    source = source.convert("RGBA")
+    for size in (64, 128, 256):
+        image = source.resize((size, size), Image.LANCZOS)
+        values.extend([size, size])
+        values.extend((a << 24) | (r << 16) | (g << 8) | b for r, g, b, a in image.getdata())
+
+lib = ctypes.cdll.LoadLibrary(ctypes.util.find_library("X11"))
+lib.XOpenDisplay.restype = ctypes.c_void_p
+lib.XInternAtom.restype = ctypes.c_ulong
+display = lib.XOpenDisplay(None)
+if not display:
+    raise SystemExit(0)
+
+prop = lib.XInternAtom(display, b"_NET_WM_ICON", False)
+cardinal = lib.XInternAtom(display, b"CARDINAL", False)
+array_type = ctypes.c_ulong * len(values)
+lib.XChangeProperty(display, window_id, prop, cardinal, 32, 0, array_type(*values), len(values))
+lib.XFlush(display)
+PY
+}
+
 clear_stale_pid_file() {
     if [ ! -f "$APP_PID_FILE" ]; then
         return 0
@@ -581,6 +653,7 @@ echo "Using CODEX_CLI_PATH=$CODEX_CLI_PATH"
 
 cd "$SCRIPT_DIR"
 echo "$$" > "$APP_PID_FILE"
+set_x11_window_icon "$$" &
 if [ -n "${ELECTRON_RUN_AS_NODE:-}" ]; then
     echo "Clearing inherited ELECTRON_RUN_AS_NODE before launching Electron"
     unset ELECTRON_RUN_AS_NODE
